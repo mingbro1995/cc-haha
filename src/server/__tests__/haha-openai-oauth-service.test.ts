@@ -8,6 +8,7 @@ import * as path from 'path'
 import * as os from 'os'
 import {
   HahaOpenAIOAuthService,
+  getHahaOpenAIOAuthFilePath,
   type StoredOpenAIOAuthTokens,
 } from '../services/hahaOpenAIOAuthService.js'
 
@@ -46,12 +47,14 @@ describe('HahaOpenAIOAuthService — file storage', () => {
       accessToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.mock-access',
       refreshToken: 'eyJhbGciOiJSUzI1NiJ9.mock-refresh',
       expiresAt: Date.now() + 3600_000,
+      idToken: 'mock-id-token',
       email: 'test@example.com',
       accountId: 'acct_123',
+      clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
     }
     await service.saveTokens(tokens)
 
-    const oauthPath = path.join(tmpDir, 'cc-haha', 'openai-oauth.json')
+    const oauthPath = getHahaOpenAIOAuthFilePath()
     const stat = await fs.stat(oauthPath)
     if (process.platform !== 'win32') {
       expect(stat.mode & 0o777).toBe(0o600)
@@ -165,6 +168,31 @@ describe('HahaOpenAIOAuthService — ensureFreshAccessToken', () => {
 
     const loaded = await service.loadTokens()
     expect(loaded?.accessToken).toBe('new-fresh-token')
+  })
+
+  test('preserves existing refresh token and id token when refresh omits them', async () => {
+    await service.saveTokens({
+      accessToken: 'expired',
+      refreshToken: 'refresh-to-preserve',
+      expiresAt: Date.now() + 60_000,
+      idToken: 'id-token-to-preserve',
+      email: 'test@example.com',
+      accountId: 'acct_123',
+      clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+    })
+
+    service.setRefreshFn(async () => ({
+      access_token: 'new-access-token',
+      expires_in: 3600,
+    }))
+
+    const fresh = await service.ensureFreshAccessToken()
+    expect(fresh).toBe('new-access-token')
+
+    const loaded = await service.loadTokens()
+    expect(loaded?.refreshToken).toBe('refresh-to-preserve')
+    expect(loaded?.idToken).toBe('id-token-to-preserve')
+    expect(loaded?.clientId).toBe('app_EMoamEEZ73f0CkXaXp7hrann')
   })
 
   test('returns null when refresh fails', async () => {

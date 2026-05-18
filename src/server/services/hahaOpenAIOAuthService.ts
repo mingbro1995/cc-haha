@@ -23,20 +23,20 @@ import {
   refreshOpenAITokens,
   isOpenAITokenExpired,
   normalizeOpenAITokens,
+  withRefreshedAccessToken,
   OPENAI_CODEX_OAUTH_PORT,
   OPENAI_CODEX_REDIRECT_PATH,
 } from '../../services/openaiAuth/client.js'
-import type {
-  OpenAIOAuthTokens,
-  OpenAIOAuthTokenResponse,
-} from '../../services/openaiAuth/types.js'
+import type { OpenAIOAuthTokenResponse } from '../../services/openaiAuth/types.js'
 
 export type StoredOpenAIOAuthTokens = {
   accessToken: string
   refreshToken: string | null
   expiresAt: number | null
+  idToken?: string | null
   email: string | null
   accountId: string | null
+  clientId?: string | null
 }
 
 export type OpenAIOAuthSession = {
@@ -53,6 +53,12 @@ type OpenAIRefreshFn = (
 
 const SESSION_TTL_MS = 5 * 60 * 1000
 
+export function getHahaOpenAIOAuthFilePath(): string {
+  const configDir =
+    process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+  return path.join(configDir, 'cc-haha', 'openai-oauth.json')
+}
+
 export class HahaOpenAIOAuthService {
   private sessions = new Map<string, OpenAIOAuthSession>()
   private refreshFn: OpenAIRefreshFn = refreshOpenAITokens
@@ -61,10 +67,8 @@ export class HahaOpenAIOAuthService {
     this.refreshFn = fn
   }
 
-  private getOAuthFilePath(): string {
-    const configDir =
-      process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
-    return path.join(configDir, 'cc-haha', 'openai-oauth.json')
+  getOAuthFilePath(): string {
+    return getHahaOpenAIOAuthFilePath()
   }
 
   async loadTokens(): Promise<StoredOpenAIOAuthTokens | null> {
@@ -161,8 +165,10 @@ export class HahaOpenAIOAuthService {
       accessToken: normalized.accessToken,
       refreshToken: normalized.refreshToken,
       expiresAt: normalized.expiresAt,
+      idToken: normalized.idToken ?? null,
       email: normalized.email ?? null,
       accountId: normalized.accountId ?? null,
+      clientId: normalized.clientId ?? null,
     }
     await this.saveTokens(tokens)
     return tokens
@@ -180,13 +186,26 @@ export class HahaOpenAIOAuthService {
 
     try {
       const refreshed = await this.refreshFn(tokens.refreshToken)
-      const normalized = normalizeOpenAITokens(refreshed)
+      const normalized = withRefreshedAccessToken(
+        {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          expiresAt: tokens.expiresAt,
+          ...(tokens.idToken ? { idToken: tokens.idToken } : {}),
+          ...(tokens.email ? { email: tokens.email } : {}),
+          ...(tokens.accountId ? { accountId: tokens.accountId } : {}),
+          ...(tokens.clientId ? { clientId: tokens.clientId } : {}),
+        },
+        refreshed,
+      )
       const updated: StoredOpenAIOAuthTokens = {
         accessToken: normalized.accessToken,
-        refreshToken: normalized.refreshToken ?? tokens.refreshToken,
+        refreshToken: normalized.refreshToken,
         expiresAt: normalized.expiresAt,
-        email: normalized.email ?? tokens.email,
-        accountId: normalized.accountId ?? tokens.accountId,
+        idToken: normalized.idToken ?? null,
+        email: normalized.email ?? null,
+        accountId: normalized.accountId ?? null,
+        clientId: normalized.clientId ?? null,
       }
       await this.saveTokens(updated)
       return updated

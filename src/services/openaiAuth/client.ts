@@ -69,6 +69,7 @@ export async function refreshOpenAITokens(
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: OPENAI_CODEX_CLIENT_ID,
+      scope: 'openid profile email',
     }).toString(),
   })
 
@@ -112,6 +113,10 @@ export function normalizeOpenAITokens(
     parseOpenAIJwtClaims(response.id_token) ??
     parseOpenAIJwtClaims(response.access_token)
 
+  if (!response.refresh_token) {
+    throw new Error('OpenAI OAuth response did not include a refresh token')
+  }
+
   return {
     accessToken: response.access_token,
     refreshToken: response.refresh_token,
@@ -119,6 +124,7 @@ export function normalizeOpenAITokens(
     idToken: response.id_token,
     accountId: extractOpenAIAccountId(claims),
     email: claims?.email,
+    clientId: OPENAI_CODEX_CLIENT_ID,
   }
 }
 
@@ -130,12 +136,17 @@ export function withRefreshedAccessToken(
   existing: OpenAIOAuthTokens,
   refreshed: OpenAIOAuthTokenResponse,
 ): OpenAIOAuthTokens {
-  const next = normalizeOpenAITokens(refreshed)
+  const claims =
+    parseOpenAIJwtClaims(refreshed.id_token) ??
+    parseOpenAIJwtClaims(refreshed.access_token)
 
   return {
-    ...next,
-    accountId: next.accountId ?? existing.accountId,
-    email: next.email ?? existing.email,
-    idToken: next.idToken ?? existing.idToken,
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token ?? existing.refreshToken,
+    expiresAt: Date.now() + (refreshed.expires_in ?? 3600) * 1000,
+    idToken: refreshed.id_token ?? existing.idToken,
+    accountId: extractOpenAIAccountId(claims) ?? existing.accountId,
+    email: claims?.email ?? existing.email,
+    clientId: existing.clientId ?? OPENAI_CODEX_CLIENT_ID,
   }
 }
