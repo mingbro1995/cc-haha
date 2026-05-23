@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { splitMessage, formatPermissionRequest, truncateInput, escapeMarkdownV2 } from '../../common/format.js'
 import { parsePermitCallbackData } from '../../common/permission.js'
 import {
+  buildTelegramThinkingUpdate,
   formatTelegramOutboundText,
   formatTelegramStreamingText,
   planTelegramStreamingUpdate,
@@ -93,6 +94,23 @@ describe('Telegram message formatting', () => {
 
       expect(result.sealedChunks).toEqual(['x'.repeat(4000)])
       expect(result.activeChunk).toBe('x'.repeat(4000))
+    })
+  })
+
+  describe('Telegram thinking updates', () => {
+    it('accumulates thinking deltas before formatting the preview', () => {
+      const first = buildTelegramThinkingUpdate('', 'The user')
+      const second = buildTelegramThinkingUpdate(first.fullText, ' wants a long answer')
+
+      expect(second.fullText).toBe('The user wants a long answer')
+      expect(second.messageText).toBe('💭 The user wants a long answer...')
+    })
+
+    it('caps long thinking previews while keeping the full accumulated text', () => {
+      const result = buildTelegramThinkingUpdate('abcdef', 'ghij', 6)
+
+      expect(result.fullText).toBe('abcdefghij')
+      expect(result.messageText).toBe('💭 abcdef...')
     })
   })
 

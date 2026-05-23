@@ -19,6 +19,7 @@ import {
   splitMessage,
 } from '../common/format.js'
 import {
+  buildTelegramThinkingUpdate,
   formatTelegramOutboundText,
   formatTelegramStreamingText,
   planTelegramStreamingUpdate,
@@ -68,6 +69,7 @@ attachmentStore.gc().catch((err) => {
 const placeholders = new Map<string, { chatId: string; messageId: number }>()
 // Track accumulated text per chat for streaming
 const accumulatedText = new Map<string, string>()
+const accumulatedThinkingText = new Map<string, string>()
 // Message buffers per chat
 const buffers = new Map<string, MessageBuffer>()
 // Track chats waiting for project selection
@@ -118,6 +120,7 @@ function getRuntimeState(chatId: string): ChatRuntimeState {
 function clearTransientChatState(chatId: string): void {
   placeholders.delete(chatId)
   accumulatedText.delete(chatId)
+  accumulatedThinkingText.delete(chatId)
   buffers.get(chatId)?.reset()
   const runtime = getRuntimeState(chatId)
   runtime.state = 'idle'
@@ -408,11 +411,13 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
         const sent = await bot.api.sendMessage(numericChatId, '💭 思考中...')
         placeholders.set(chatId, { chatId, messageId: sent.message_id })
         accumulatedText.set(chatId, '')
+        accumulatedThinkingText.set(chatId, '')
       }
       break
 
     case 'content_start':
       if (msg.blockType === 'text') {
+        accumulatedThinkingText.delete(chatId)
         if (!placeholders.has(chatId)) {
           const sent = await bot.api.sendMessage(numericChatId, '▍')
           placeholders.set(chatId, { chatId, messageId: sent.message_id })
@@ -443,6 +448,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
 
     case 'content_delta':
       if (msg.text) {
+        accumulatedThinkingText.delete(chatId)
         buf.append(msg.text)
         const newUploads = getTgWatcher(chatId).feed(msg.text)
         for (const pending of newUploads) {
@@ -453,11 +459,16 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
 
     case 'thinking':
       if (placeholders.has(chatId)) {
+        const update = buildTelegramThinkingUpdate(
+          accumulatedThinkingText.get(chatId) ?? '',
+          msg.text,
+        )
+        accumulatedThinkingText.set(chatId, update.fullText)
         try {
           await bot.api.editMessageText(
             numericChatId,
             placeholders.get(chatId)!.messageId,
-            `💭 ${msg.text.slice(0, 200)}...`,
+            update.messageText,
           )
         } catch { /* ignore */ }
       }
@@ -506,6 +517,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
         }
         placeholders.delete(chatId)
         accumulatedText.delete(chatId)
+        accumulatedThinkingText.delete(chatId)
         buffers.get(chatId)?.reset()
       }
       break
@@ -513,6 +525,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     case 'error':
       runtime.state = 'idle'
       runtime.verb = undefined
+      accumulatedThinkingText.delete(chatId)
       // Auto-recover from stale thinking block signatures by creating a fresh session.
       // This happens when the API key or provider changed since the session was created.
       if (msg.message && /Invalid.*signature.*thinking/i.test(msg.message)) {

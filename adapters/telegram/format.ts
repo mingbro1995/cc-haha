@@ -11,6 +11,26 @@ export function formatTelegramStreamingText(text: string): string {
   return `${formatTelegramOutboundText(text)} ▍`
 }
 
+const DEFAULT_THINKING_PREVIEW_LIMIT = 1000
+
+export type TelegramThinkingUpdate = {
+  fullText: string
+  messageText: string
+}
+
+export function buildTelegramThinkingUpdate(
+  currentText: string,
+  deltaText: string,
+  previewLimit = DEFAULT_THINKING_PREVIEW_LIMIT,
+): TelegramThinkingUpdate {
+  const fullText = currentText + deltaText
+  const preview = fullText.slice(0, Math.max(0, previewLimit)).trimStart()
+  return {
+    fullText,
+    messageText: preview ? `💭 ${preview}...` : '💭 思考中...',
+  }
+}
+
 export type TelegramStreamingUpdate = {
   sealedChunks: string[]
   activeChunk: string

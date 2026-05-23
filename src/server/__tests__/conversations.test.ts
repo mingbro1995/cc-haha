@@ -2528,6 +2528,84 @@ describe('WebSocket Chat Integration', () => {
     })
   })
 
+  it('should stream one active turn to multiple connected clients', async () => {
+    await withMockStreamDelay(150, async () => {
+      const sessionId = `chat-multi-client-${crypto.randomUUID()}`
+      const firstMessages: any[] = []
+      const secondMessages: any[] = []
+
+      await new Promise<void>((resolve, reject) => {
+        let secondConnected = false
+        let firstComplete = false
+        let secondComplete = false
+        let ws2: WebSocket | null = null
+
+        const timeout = setTimeout(() => {
+          ws1.close()
+          ws2?.close()
+          reject(new Error(`Timed out waiting for both clients to complete for session ${sessionId}`))
+        }, 10_000)
+
+        const cleanup = () => {
+          if (!firstComplete || !secondComplete) return
+          clearTimeout(timeout)
+          ws1.close()
+          ws2?.close()
+          resolve()
+        }
+
+        const handleFailure = (message: string) => {
+          clearTimeout(timeout)
+          ws1.close()
+          ws2?.close()
+          reject(new Error(message))
+        }
+
+        const ws1 = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+        ws1.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+          firstMessages.push(msg)
+
+          if (msg.type === 'connected') {
+            ws1.send(JSON.stringify({ type: 'user_message', content: 'multi client stream' }))
+            return
+          }
+
+          if (msg.type === 'thinking' && !secondConnected) {
+            secondConnected = true
+            ws2 = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+            ws2.onmessage = (secondEvent) => {
+              const secondMsg = JSON.parse(secondEvent.data as string)
+              secondMessages.push(secondMsg)
+              if (secondMsg.type === 'error') {
+                handleFailure(secondMsg.message)
+                return
+              }
+              if (secondMsg.type === 'message_complete') {
+                secondComplete = true
+                cleanup()
+              }
+            }
+            ws2.onerror = () => handleFailure(`Second WebSocket error for session ${sessionId}`)
+          }
+
+          if (msg.type === 'message_complete') {
+            firstComplete = true
+            cleanup()
+          }
+        }
+
+        ws1.onerror = () => handleFailure(`First WebSocket error for session ${sessionId}`)
+      })
+
+      expect(firstMessages.some((msg) => msg.type === 'content_delta')).toBe(true)
+      expect(firstMessages.some((msg) => msg.type === 'message_complete')).toBe(true)
+      expect(secondMessages.some((msg) => msg.type === 'connected')).toBe(true)
+      expect(secondMessages.some((msg) => msg.type === 'content_delta')).toBe(true)
+      expect(secondMessages.some((msg) => msg.type === 'message_complete')).toBe(true)
+    })
+  })
+
   it('should keep using the selected runtime config across the whole session until changed', async () => {
     const providerService = new ProviderService()
     const providerA = await providerService.addProvider({
