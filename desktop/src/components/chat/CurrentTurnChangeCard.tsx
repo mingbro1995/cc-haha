@@ -38,7 +38,7 @@ export function CurrentTurnChangeCard({
   onUndo,
 }: CurrentTurnChangeCardProps) {
   const t = useTranslation()
-  const [openWith, setOpenWith] = useState<{ items: OpenWithItem[]; anchor: DOMRect } | null>(null)
+  const [openWith, setOpenWith] = useState<{ items: OpenWithItem[]; anchor: DOMRect; triggerEl: HTMLElement } | null>(null)
   const [showAllFiles, setShowAllFiles] = useState(false)
 
   const files = useMemo<ChangedFileEntry[]>(
@@ -63,7 +63,15 @@ export function CurrentTurnChangeCard({
 
   const handleOpenWith = useCallback((event: ReactMouseEvent<HTMLButtonElement>, fileEntry: ChangedFileEntry) => {
     event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
+    // Toggle: if the menu is already open, a second click on the trigger closes it
+    // (the OpenWithMenu's outside-mousedown handler excludes the trigger, so its
+    //  own click is the only thing that can close it on re-click).
+    if (openWith) {
+      setOpenWith(null)
+      return
+    }
+    const triggerEl = event.currentTarget
+    const rect = triggerEl.getBoundingClientRect()
     void (async () => {
       await useOpenTargetStore.getState().ensureTargets()
       const targets = useOpenTargetStore.getState().targets
@@ -78,9 +86,9 @@ export function CurrentTurnChangeCard({
         openTarget: (id, abs) => { void useOpenTargetStore.getState().openTarget(id, abs) },
         t: (k, v) => t(k as TranslationKey, v),
       })
-      setOpenWith({ items, anchor: rect })
+      setOpenWith({ items, anchor: rect, triggerEl })
     })()
-  }, [sessionId, t])
+  }, [openWith, sessionId, t])
 
   const cardLabel = isLatest
     ? t('chat.turnChangesLatestCardLabel')
@@ -193,7 +201,7 @@ export function CurrentTurnChangeCard({
         </div>
       )}
 
-      {openWith && <OpenWithMenu items={openWith.items} anchor={openWith.anchor} onClose={() => setOpenWith(null)} />}
+      {openWith && <OpenWithMenu items={openWith.items} anchor={openWith.anchor} triggerEl={openWith.triggerEl} onClose={() => setOpenWith(null)} />}
     </section>
   )
 }

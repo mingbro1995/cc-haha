@@ -69,6 +69,65 @@ describe('OpenWithMenu', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  describe('triggerEl exclusion (re-click-trigger toggle support)', () => {
+    it('does NOT call onClose when mousedown lands inside triggerEl', () => {
+      // Set up a trigger element + a child within it in the document.
+      const trigger = document.createElement('button')
+      const triggerChild = document.createElement('span')
+      trigger.appendChild(triggerChild)
+      document.body.appendChild(trigger)
+      const onClose = vi.fn()
+      render(<OpenWithMenu items={makeItems()} anchor={anchor} onClose={onClose} triggerEl={trigger} />)
+
+      // mousedown on the trigger itself
+      fireEvent.mouseDown(trigger)
+      expect(onClose).not.toHaveBeenCalled()
+
+      // mousedown on a descendant of the trigger
+      fireEvent.mouseDown(triggerChild)
+      expect(onClose).not.toHaveBeenCalled()
+
+      document.body.removeChild(trigger)
+    })
+
+    it('STILL calls onClose for true outside clicks (not menu, not trigger)', () => {
+      const trigger = document.createElement('button')
+      document.body.appendChild(trigger)
+      const outside = document.createElement('div')
+      document.body.appendChild(outside)
+      const onClose = vi.fn()
+      render(<OpenWithMenu items={makeItems()} anchor={anchor} onClose={onClose} triggerEl={trigger} />)
+
+      fireEvent.mouseDown(outside)
+      expect(onClose).toHaveBeenCalledTimes(1)
+
+      document.body.removeChild(trigger)
+      document.body.removeChild(outside)
+    })
+
+    it('Escape still closes when triggerEl is provided', () => {
+      const trigger = document.createElement('button')
+      document.body.appendChild(trigger)
+      const onClose = vi.fn()
+      render(<OpenWithMenu items={makeItems()} anchor={anchor} onClose={onClose} triggerEl={trigger} />)
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      document.body.removeChild(trigger)
+    })
+
+    it('item click still closes the menu when triggerEl is provided', () => {
+      const trigger = document.createElement('button')
+      document.body.appendChild(trigger)
+      const onClose = vi.fn()
+      const onSelect1 = vi.fn()
+      render(<OpenWithMenu items={makeItems(onSelect1)} anchor={anchor} onClose={onClose} triggerEl={trigger} />)
+      fireEvent.click(screen.getByText('In-app browser'))
+      expect(onSelect1).toHaveBeenCalledTimes(1)
+      expect(onClose).toHaveBeenCalledTimes(1)
+      document.body.removeChild(trigger)
+    })
+  })
+
   it('flips above the anchor when it would overflow the viewport bottom', () => {
     // The trigger often sits right above the composer; the menu must not render off-screen below it.
     Object.defineProperty(window, 'innerHeight', { value: 300, configurable: true })

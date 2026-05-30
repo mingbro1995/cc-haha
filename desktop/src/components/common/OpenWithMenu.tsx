@@ -8,6 +8,10 @@ type Props = {
   items: OpenWithItem[]
   anchor: { top: number; bottom: number; left: number; right: number }
   onClose: () => void
+  // Optional trigger element to exclude from outside-close detection. When the
+  // user clicks the same trigger that opened this menu, the trigger's own
+  // click handler is responsible for toggling — don't double-close here.
+  triggerEl?: HTMLElement | null
 }
 
 function ItemIcon({ item }: { item: OpenWithItem }) {
@@ -19,7 +23,7 @@ function ItemIcon({ item }: { item: OpenWithItem }) {
 
 const MARGIN = 8
 
-export function OpenWithMenu({ items, anchor, onClose }: Props) {
+export function OpenWithMenu({ items, anchor, onClose, triggerEl }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   // Initial guess; corrected (before paint) by the layout effect once we can measure the menu.
   const [pos, setPos] = useState<{ top: number; left: number }>(() => ({
@@ -47,12 +51,20 @@ export function OpenWithMenu({ items, anchor, onClose }: Props) {
   }, [anchor])
 
   useEffect(() => {
-    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose() }
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node | null
+      if (!target) return
+      // Ignore clicks inside the menu itself, AND clicks inside the trigger
+      // element that opened it — the trigger's own onClick handler will toggle.
+      if (ref.current?.contains(target)) return
+      if (triggerEl && triggerEl.contains(target)) return
+      onClose()
+    }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
-  }, [onClose])
+  }, [onClose, triggerEl])
 
   return createPortal(
     <div

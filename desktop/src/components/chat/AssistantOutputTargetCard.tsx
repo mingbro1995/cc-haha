@@ -21,7 +21,7 @@ type Props = {
 
 export function AssistantOutputTargetCard({ target, sessionId, workDir }: Props) {
   const t = useTranslation()
-  const [openWith, setOpenWith] = useState<{ items: OpenWithItem[]; anchor: DOMRect } | null>(null)
+  const [openWith, setOpenWith] = useState<{ items: OpenWithItem[]; anchor: DOMRect; triggerEl: HTMLElement } | null>(null)
 
   const isLocalhost = target.kind === 'localhost-url'
   const typeInfo = describeFileType(target.normalizedPath ?? target.href)
@@ -60,7 +60,15 @@ export function AssistantOutputTargetCard({ target, sessionId, workDir }: Props)
 
   const handleOpenWith = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
+    // Toggle: a second click on the same trigger closes the menu. OpenWithMenu's
+    // outside-mousedown ignores the trigger, so the trigger's own click is the
+    // only path that can close it on re-click.
+    if (openWith) {
+      setOpenWith(null)
+      return
+    }
+    const triggerEl = event.currentTarget
+    const rect = triggerEl.getBoundingClientRect()
     void (async () => {
       await useOpenTargetStore.getState().ensureTargets()
       const targets = useOpenTargetStore.getState().targets
@@ -77,9 +85,9 @@ export function AssistantOutputTargetCard({ target, sessionId, workDir }: Props)
         openTarget: (id, abs) => { void useOpenTargetStore.getState().openTarget(id, abs) },
         t: (k, v) => t(k as TranslationKey, v),
       })
-      setOpenWith({ items, anchor: rect })
+      setOpenWith({ items, anchor: rect, triggerEl })
     })()
-  }, [sessionId, t, target.href, workDir])
+  }, [openWith, sessionId, t, target.href, workDir])
 
   return (
     <section className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)]/70 bg-[var(--color-surface-container-low)] px-3 py-2.5 shadow-sm">
@@ -137,7 +145,7 @@ export function AssistantOutputTargetCard({ target, sessionId, workDir }: Props)
         </button>
       </div>
 
-      {openWith && <OpenWithMenu items={openWith.items} anchor={openWith.anchor} onClose={() => setOpenWith(null)} />}
+      {openWith && <OpenWithMenu items={openWith.items} anchor={openWith.anchor} triggerEl={openWith.triggerEl} onClose={() => setOpenWith(null)} />}
     </section>
   )
 }
