@@ -284,12 +284,12 @@ export function ActiveSession() {
   const showRightPanel = showWorkbench
   const rightPanelWidth = useWorkspacePanelStore((state) => state.width)
   const showTerminalPanel = useTerminalPanelStore((state) =>
-    activeTabId && isSessionTabState(activeTabId, activeTabType) && !isMemberSession && !isMobileLayout
+    activeTabId && isSessionTabState(activeTabId, activeTabType) && !isMemberSession
       ? state.isPanelOpen(activeTabId)
       : false,
   )
   const terminalPanelRuntimeId = useTerminalPanelStore((state) =>
-    activeTabId && isSessionTabState(activeTabId, activeTabType) && !isMemberSession && !isMobileLayout
+    activeTabId && isSessionTabState(activeTabId, activeTabType) && !isMemberSession
       ? state.panelBySession[activeTabId]?.runtimeId
       : undefined,
   )

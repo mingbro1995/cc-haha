@@ -5,16 +5,31 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { destroyTerminalRuntime } from '../lib/terminalRuntime'
 
 const terminalMocks = vi.hoisted(() => {
-  const terminalInstance = {
+  const terminalInstance: {
+    cols: number
+    rows: number
+    loadAddon: ReturnType<typeof vi.fn>
+    open: ReturnType<typeof vi.fn>
+    dispose: ReturnType<typeof vi.fn>
+    onData: ReturnType<typeof vi.fn>
+    write: ReturnType<typeof vi.fn>
+    writeln: ReturnType<typeof vi.fn>
+    clear: ReturnType<typeof vi.fn>
+    resize: ReturnType<typeof vi.fn>
+    element?: HTMLDivElement
+  } = {
     cols: 80,
     rows: 24,
     loadAddon: vi.fn(),
-    open: vi.fn(),
+    open: vi.fn(() => {
+      terminalInstance.element = document.createElement('div')
+    }),
     dispose: vi.fn(),
     onData: vi.fn(),
     write: vi.fn(),
     writeln: vi.fn(),
     clear: vi.fn(),
+    resize: vi.fn(),
   }
   const fitInstance = {
     fit: vi.fn(),
@@ -85,6 +100,8 @@ describe('TerminalSettings', () => {
     terminalMocks.terminalInstance.write.mockClear()
     terminalMocks.terminalInstance.writeln.mockClear()
     terminalMocks.terminalInstance.clear.mockClear()
+    terminalMocks.terminalInstance.resize.mockClear()
+    delete terminalMocks.terminalInstance.element
     terminalMocks.fitInstance.fit.mockClear()
     terminalMocks.onOutput.mockResolvedValue(vi.fn())
     terminalMocks.onExit.mockResolvedValue(vi.fn())
@@ -99,7 +116,34 @@ describe('TerminalSettings', () => {
       cwd: '/Users/test',
     })
     vi.stubGlobal('ResizeObserver', class {
-      observe = vi.fn()
+      callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+      }
+      observe = vi.fn((target: Element) => {
+        const rect = target.getBoundingClientRect()
+        const width = rect.width > 0 ? rect.width : 640
+        const height = rect.height > 0 ? rect.height : 240
+        const entry: ResizeObserverEntry = {
+          target,
+          contentRect: {
+            x: 0,
+            y: 0,
+            top: 0,
+            left: 0,
+            bottom: height,
+            right: width,
+            width,
+            height,
+            toJSON: () => ({}),
+          } as DOMRectReadOnly,
+          borderBoxSize: [],
+          contentBoxSize: [],
+          devicePixelContentBoxSize: [],
+        } as unknown as ResizeObserverEntry
+        this.callback([entry], this)
+      })
+      unobserve = vi.fn()
       disconnect = vi.fn()
     })
     vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
@@ -225,7 +269,7 @@ describe('TerminalSettings', () => {
     render(<TerminalSettings runtimeId="shared-runtime" />)
 
     await waitFor(() => {
-      expect(terminalMocks.terminalInstance.open).toHaveBeenCalledTimes(2)
+      expect(terminalMocks.terminalInstance.open).toHaveBeenCalledTimes(1)
     })
     expect(terminalMocks.spawn).toHaveBeenCalledTimes(1)
 

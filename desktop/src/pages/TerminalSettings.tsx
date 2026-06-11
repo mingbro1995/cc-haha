@@ -42,6 +42,50 @@ function findScrollableAncestor(element: HTMLElement, deltaY: number): HTMLEleme
   return null
 }
 
+function waitForStableHostSize(
+  host: HTMLElement,
+  opts: { stableMs?: number; timeoutMs?: number } = {},
+): Promise<void> {
+  const stableMs = opts.stableMs ?? 100
+  const timeoutMs = opts.timeoutMs ?? 800
+  return new Promise((resolve) => {
+    let lastWidth = 0
+    let lastHeight = 0
+    let stableTimer: ReturnType<typeof setTimeout> | null = null
+    const done = () => {
+      if (stableTimer) {
+        clearTimeout(stableTimer)
+        stableTimer = null
+      }
+      observer.disconnect()
+      resolve()
+    }
+    setTimeout(done, timeoutMs)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      const { width, height } = entry.contentRect
+      if (width <= 0 || height <= 0) return
+      if (width === lastWidth && height === lastHeight) {
+        if (!stableTimer) {
+          stableTimer = setTimeout(done, stableMs)
+        }
+        return
+      }
+      if (stableTimer) {
+        clearTimeout(stableTimer)
+        stableTimer = null
+      }
+      lastWidth = width
+      lastHeight = height
+      // Start the stability timer on the first valid size too,
+      // in case the element is already at its final size.
+      stableTimer = setTimeout(done, stableMs)
+    })
+    observer.observe(host)
+  })
+}
+
 type TerminalSettingsProps = {
   active?: boolean
   cwd?: string
@@ -144,8 +188,18 @@ export function TerminalSettings({
     if (!terminal || !fit) return
 
     fit.fit()
-    if (sessionId) {
-      void terminalApi.resize(sessionId, terminal.cols, terminal.rows).catch(() => {})
+    // Reserve 1 row as safety margin for font rendering / DPR differences.
+    const safeRows = Math.max(1, terminal.rows - 1)
+    if (terminal.rows !== safeRows) {
+      terminal.resize(terminal.cols, safeRows)
+    }
+    if (
+      sessionId &&
+      (runtime.lastResizeCols !== terminal.cols || runtime.lastResizeRows !== safeRows)
+    ) {
+      runtime.lastResizeCols = terminal.cols
+      runtime.lastResizeRows = safeRows
+      void terminalApi.resize(sessionId, terminal.cols, safeRows).catch(() => {})
     }
   }, [runtime])
 
@@ -165,6 +219,8 @@ export function TerminalSettings({
       await terminalApi.kill(existing).catch(() => {})
       runtime.nativeSessionId = null
     }
+    runtime.lastResizeCols = 0
+    runtime.lastResizeRows = 0
     runtime.dataDisposable?.dispose()
     runtime.dataDisposable = null
     runtime.unlisteners.forEach((unlisten) => unlisten())
@@ -214,7 +270,16 @@ export function TerminalSettings({
     terminal.loadAddon(fit)
     terminal.open(host)
     updateTerminalRuntime(runtime, { terminal, fit })
+    // Wait for the host dimensions to stabilise before fitting and spawning.
+    // This prevents spawning at a transient small size and then resizing,
+    // which causes Windows cmd.exe to reprint its startup banner.
+    await waitForStableHostSize(host)
     fit.fit()
+    // Reserve 1 row as safety margin for font rendering / DPR differences.
+    const safeRows = Math.max(1, terminal.rows - 1)
+    if (terminal.rows !== safeRows) {
+      terminal.resize(terminal.cols, safeRows)
+    }
 
     const outputUnlisten = await terminalApi.onOutput((payload) => {
       if (payload.session_id === runtime.nativeSessionId) {
@@ -248,6 +313,8 @@ export function TerminalSettings({
         rows: terminal.rows,
         ...(cwd ? { cwd } : {}),
       })
+      runtime.lastResizeCols = terminal.cols
+      runtime.lastResizeRows = terminal.rows
       updateTerminalRuntime(runtime, {
         nativeSessionId: result.session_id,
         shellInfo: { shell: result.shell, cwd: result.cwd },
@@ -278,10 +345,15 @@ export function TerminalSettings({
       void startTerminal()
     }
 
-    const observer = new ResizeObserver(() => resizeSession())
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null
+    const observer = new ResizeObserver(() => {
+      if (resizeTimeout) clearTimeout(resizeTimeout)
+      resizeTimeout = setTimeout(() => resizeSession(), 150)
+    })
     if (hostRef.current) observer.observe(hostRef.current)
 
     return () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout)
       observer.disconnect()
       if (!preserveOnUnmount) {
         destroyTerminalRuntime(runtime.id)
@@ -290,10 +362,11 @@ export function TerminalSettings({
   }, [preserveOnUnmount, resizeSession, runtime, startTerminal])
 
   useEffect(() => {
-    if (active) {
+    if (active && runtime.terminal && hostRef.current) {
+      attachTerminalRuntime(runtime, hostRef.current)
       requestAnimationFrame(() => resizeSession())
     }
-  }, [active, resizeSession])
+  }, [active, resizeSession, runtime])
 
   const clearTerminal = () => {
     runtime.terminal?.clear()
@@ -523,12 +596,12 @@ export function TerminalSettings({
         <div
           data-testid="settings-terminal-frame"
           onWheelCapture={handleTerminalWheelCapture}
-          className="min-h-0 flex-1 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-terminal-border)] bg-[var(--color-terminal-bg)] shadow-[var(--shadow-dropdown)]"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-terminal-border)] bg-[var(--color-terminal-bg)] shadow-[var(--shadow-dropdown)] px-2 pb-2 pt-1.5"
         >
           <div
             ref={hostRef}
             data-testid={testId}
-            className="settings-terminal-host h-full w-full overflow-hidden px-2 pb-2 pt-1.5"
+            className="settings-terminal-host min-h-0 w-full flex-1 overflow-hidden"
           />
         </div>
       )}

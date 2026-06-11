@@ -217,6 +217,44 @@ mod macos_notifications {
     }
 }
 
+pub mod terminal_websocket;
+
+fn warmup_pty_system() {
+    // Windows ConPTY (and cmd.exe's first attach to a ConPTY) pays a one-time
+    // initialization cost that can surface as an implicit resize for the first
+    // real session, causing cmd.exe to reprint its startup banner twice.
+    // Warm up by opening a tiny PTY and briefly spawning cmd.exe so the real
+    // terminals later avoid that first-attach quirk.
+    #[cfg(target_os = "windows")]
+    {
+        thread::spawn(|| {
+            let pty_system = native_pty_system();
+            let Ok(pair) = pty_system.openpty(PtySize {
+                rows: 8,
+                cols: 20,
+                pixel_width: 0,
+                pixel_height: 0,
+            }) else {
+                return;
+            };
+            let mut cmd = CommandBuilder::new("cmd.exe");
+            cmd.arg("/C");
+            cmd.arg("exit");
+            let Ok(mut child) = pair.slave.spawn_command(cmd) else { return };
+            drop(pair.slave);
+            let start = Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if start.elapsed() < Duration::from_secs(3) => {
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    _ => break,
+                }
+            }
+        });
+    }
+}
 mod webview_panel;
 
 const SERVER_STARTUP_LOG_LIMIT: usize = 80;
@@ -2324,6 +2362,15 @@ pub fn run() {
             setup_system_tray(app)?;
             macos_notifications::install_click_handler(app.handle().clone());
             restore_main_window_state(&app.handle());
+            warmup_pty_system();
+
+            // Start terminal WebSocket server for H5 browser clients
+            let config_dir = app.path().app_config_dir().ok();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = terminal_websocket::start_terminal_websocket_server(config_dir).await {
+                    eprintln!("[desktop] failed to start terminal websocket server: {e}");
+                }
+            });
 
             let state = app.state::<ServerState>();
             let mut guard = state

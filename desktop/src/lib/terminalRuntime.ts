@@ -20,6 +20,8 @@ export type TerminalRuntime = {
   error: string | null
   shellInfo: TerminalShellInfo | null
   listeners: Set<() => void>
+  lastResizeCols: number
+  lastResizeRows: number
 }
 
 const runtimes = new Map<string, TerminalRuntime>()
@@ -45,6 +47,8 @@ export function getTerminalRuntime(id: string, initialStatus: TerminalStatus): T
     error: null,
     shellInfo: null,
     listeners: new Set(),
+    lastResizeCols: 0,
+    lastResizeRows: 0,
   }
   runtimes.set(id, runtime)
   return runtime

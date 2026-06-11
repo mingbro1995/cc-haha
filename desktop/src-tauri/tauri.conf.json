@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri-schema-v2.json",
   "productName": "Claude Code Haha",
   "version": "0.3.2",
-  "identifier": "com.claude-code-haha.desktop",
+  "identifier": "com.claude-code-haha-cus.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",

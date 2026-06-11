@@ -27,6 +27,7 @@ import { ensurePersistentStorageUpgraded } from './services/persistentStorageMig
 import { handleStaticH5Request } from './staticH5.js'
 import { classifyH5Request, shouldBlockDisabledH5Access, shouldRequireH5Token } from './h5AccessPolicy.js'
 import { H5AccessService } from './services/h5AccessService.js'
+import { startTerminalServerSidecar } from './terminalServerSidecar.js'
 
 function readArgValue(flag: string): string | undefined {
   const args = process.argv.slice(2)
@@ -124,6 +125,12 @@ function originFromUrl(value: string | null): string | null {
 }
 
 export function startServer(port = PORT, host = HOST) {
+  // Start the Rust terminal websocket sidecar in the background so H5/browser
+  // clients don't have to launch it manually.
+  void startTerminalServerSidecar().catch((err) => {
+    console.error('[server] failed to start terminal websocket sidecar:', err instanceof Error ? err.message : String(err))
+  })
+
   enableConfigs()
   diagnosticsService.installConsoleCapture()
   diagnosticsService.installProcessCapture()
